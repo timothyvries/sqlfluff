@@ -2921,6 +2921,39 @@ class ResetStatementSegment(BaseSegment):
     )
 
 
+class SetConfigValueSegment(BaseSegment):
+    """A runtime config value in a Spark `SET` statement.
+
+    Narrower than ``ExpressionSegment`` so opaque config strings (paths, URIs,
+    hyphenated tokens) are not treated as SQL expressions for linting/rewrites.
+    https://github.com/sqlfluff/sqlfluff/issues/4218
+    """
+
+    type = "set_config_value"
+
+    match_grammar = OneOf(
+        Ref("LiteralGrammar"),
+        Bracketed(Delimited(Ref("LiteralGrammar"))),
+        Ref("FunctionSegment"),
+        Ref("BareFunctionSegment"),
+        # Java class names / dotted identifier config tokens.
+        # Require at least one dot so a bare token like `dynamic` in
+        # `dynamic,static` falls through to the opaque Anything() branch.
+        Delimited(
+            Ref("PropertiesNakedIdentifierSegment"),
+            delimiter=Ref("DotSegment"),
+            min_delimiters=1,
+        ),
+        # Opaque raw payloads (URIs, hyphenated tokens, comma lists, etc.).
+        # Bound on `;` only — SparkSQL expects semicolon-delimited statements;
+        # missing-semicolon recovery is a separate known gap. See #8187 / #4218.
+        Anything(
+            terminators=[Ref("DelimiterGrammar")],
+            reset_terminators=True,
+        ),
+    )
+
+
 class SetStatementSegment(BaseSegment):
     """A `SET` statement used to set runtime properties.
 
@@ -2933,7 +2966,13 @@ class SetStatementSegment(BaseSegment):
         "SET",
         Ref("SQLConfPropertiesSegment", optional=True),
         OneOf(
-            Ref("PropertyListGrammar"),
+            # One key=value assignment. Delimiting assignments on commas
+            # incorrectly splits opaque values that contain commas.
+            Sequence(
+                Ref("PropertyNameSegment"),
+                Ref("EqualsSegment"),
+                Ref("SetConfigValueSegment"),
+            ),
             Ref("PropertyNameSegment"),
             optional=True,
         ),
@@ -3050,14 +3089,11 @@ class JoinClauseSegment(ansi.JoinClauseSegment):
 
     match_grammar = OneOf(
         # NB These qualifiers are optional
-        # TODO: Allow nested joins like:
-        # ....FROM S1.T1 t1 LEFT JOIN ( S2.T2 t2 JOIN S3.T3 t3 ON t2.col1=t3.col1) ON
-        # tab1.col1 = tab2.col1
         Sequence(
             Ref("JoinTypeKeywords", optional=True),
             Ref("JoinKeywordsGrammar"),
             Indent,
-            Ref("FromExpressionElementSegment"),
+            Ref("JoinTargetGrammar"),
             Dedent,
             Conditional(Indent, indented_using_on=True),
             # NB: this is optional
@@ -3091,7 +3127,7 @@ class JoinClauseSegment(ansi.JoinClauseSegment):
             Ref("NaturalJoinKeywordsGrammar"),
             Ref("JoinKeywordsGrammar"),
             Indent,
-            Ref("FromExpressionElementSegment"),
+            Ref("JoinTargetGrammar"),
             Dedent,
         ),
     )
@@ -3215,6 +3251,14 @@ class TableExpressionSegment(ansi.TableExpressionSegment):
         ),
         # Nested Selects
         Bracketed(Ref("SelectableGrammar")),
+        # The Delta introspection statements double as relations, e.g.
+        # SELECT location FROM (DESCRIBE DETAIL my_table);
+        Bracketed(
+            OneOf(
+                Ref("DescribeHistoryStatementSegment"),
+                Ref("DescribeDetailStatementSegment"),
+            ),
+        ),
     )
 
 
@@ -3470,7 +3514,7 @@ class DescribeHistoryStatementSegment(BaseSegment):
     type = "describe_history_statement"
 
     match_grammar: Matchable = Sequence(
-        "DESCRIBE",
+        OneOf("DESCRIBE", "DESC"),
         "HISTORY",
         OneOf(
             Ref("QuotedLiteralSegment"),
@@ -3490,7 +3534,7 @@ class DescribeDetailStatementSegment(BaseSegment):
     type = "describe_detail_statement"
 
     match_grammar: Matchable = Sequence(
-        "DESCRIBE",
+        OneOf("DESCRIBE", "DESC"),
         "DETAIL",
         OneOf(
             Ref("QuotedLiteralSegment"),
