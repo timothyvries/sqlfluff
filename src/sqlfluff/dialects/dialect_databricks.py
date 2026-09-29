@@ -22,6 +22,7 @@ from sqlfluff.core.parser import (
     NewlineSegment,
     OneOf,
     OptionallyBracketed,
+    ParseMode,
     Ref,
     RegexLexer,
     RegexParser,
@@ -1728,7 +1729,15 @@ class InsertStatementSegment(sparksql.InsertStatementSegment):
                         Sequence("BY", "NAME", optional=True),
                         "REPLACE",
                         "ON",
-                        Ref("ExpressionSegment"),
+                        # Bound the boolean expression so the trailing query
+                        # isn't swallowed as function args on the last
+                        # identifier, e.g. `REPLACE ON t.name = s.name
+                        # (SELECT ...)`.
+                        Sequence(
+                            Ref("ExpressionSegment"),
+                            parse_mode=ParseMode.GREEDY,
+                            terminators=[Ref("SelectableGrammar")],
+                        ),
                         Ref("SelectableGrammar"),
                         Sequence(
                             Ref.keyword("AS", optional=True),
