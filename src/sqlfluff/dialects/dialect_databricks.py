@@ -1732,20 +1732,11 @@ class InsertStatementSegment(sparksql.InsertStatementSegment):
                         # Bound the boolean expression so the trailing query
                         # isn't swallowed as function args on the last
                         # identifier, e.g. `REPLACE ON t.name = s.name
-                        # (SELECT ...)`. Terminate on the tokens that can
-                        # start the following query rather than on the full
-                        # (recursive) SelectableGrammar, which is expensive
-                        # to use as a terminator and has caused Python/Rust
-                        # parser parity issues in this position.
+                        # (SELECT ...)`.
                         Sequence(
                             Ref("ExpressionSegment"),
                             parse_mode=ParseMode.GREEDY,
-                            terminators=[
-                                Ref.keyword("SELECT"),
-                                Ref.keyword("VALUES"),
-                                Ref.keyword("WITH"),
-                                Ref("StartBracketSegment"),
-                            ],
+                            terminators=[Ref("SelectableGrammar")],
                         ),
                         Ref("SelectableGrammar"),
                         Sequence(
