@@ -73,6 +73,16 @@ INSERT INTO TABLE students t
 REPLACE ON t.name = s.name
 SELECT * FROM people s;
 
+-- Regression: INSERT INTO with REPLACE ON and bracketed query
+INSERT INTO TABLE students AS t
+REPLACE ON t.name = s.name
+(SELECT * FROM people);
+
+-- Regression: INSERT INTO with REPLACE ON, bracketed query and source alias
+INSERT INTO TABLE students AS t
+REPLACE ON t.name = s.name
+(SELECT * FROM people) AS s;
+
 -- INSERT WITH SCHEMA EVOLUTION
 INSERT WITH SCHEMA EVOLUTION INTO TABLE students
 SELECT * FROM new_students;
